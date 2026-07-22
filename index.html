@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>AI 智慧股票分析與語音播報</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #f9f9f9; }
+        textarea { width: 100%; height: 100px; padding: 10px; margin-bottom: 10px; }
+        button { padding: 10px 20px; background: #0070f3; color: white; border: none; cursor: pointer; }
+        button:disabled { background: #ccc; }
+        .result { margin-top: 20px; background: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+    <h2>AI 股票庫存分析</h2>
+    <p>請輸入你的股票庫存（例如：台積電 2張 成本600；聯發科 1張 成本1000）：</p>
+    <textarea id="stockInput">台積電 2張 成本600
+聯發科 1張 成本1000</textarea>
+    <br>
+    <button id="analyzeBtn" onclick="analyzeStock()">開始分析與語音播報</button>
+
+    <div class="result" id="resultArea" style="display:none;">
+        <h3>分析結果：</h3>
+        <p id="analysisText"></p>
+        <audio id="audioPlayer" controls style="width:100%; margin-top:10px;"></audio>
+    </div>
+
+    <script>
+        // 將此處換成你部署好的 Cloudflare Worker 網址
+        const WORKER_URL = "https://你的worker名稱.workers.dev";
+
+        async function analyzeStock() {
+            const stockList = document.getElementById("stockInput").value;
+            const btn = document.getElementById("analyzeBtn");
+            const resultArea = document.getElementById("resultArea");
+            const analysisText = document.getElementById("analysisText");
+            const audioPlayer = document.getElementById("audioPlayer");
+
+            if (!stockList.trim()) return alert("請輸入庫存資料");
+
+            btn.disabled = true;
+            btn.innerText = "分析與生成語音中...";
+            resultArea.style.display = "none";
+
+            try {
+                const response = await fetch(WORKER_URL, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ stockList })
+                });
+
+                const data = await response.json();
+                if (data.error) throw new Error(data.error);
+
+                // 顯示分析文字
+                analysisText.innerText = data.analysis;
+
+                // 解碼 Base64 音檔並讓播放器播放
+                const binaryString = atob(data.audio);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                const blob = new Blob([bytes], { type: "audio/mp3" });
+                audioPlayer.src = URL.createObjectURL(blob);
+                
+                resultArea.style.display = "block";
+                audioPlayer.play(); // 自動播放語音
+
+            } catch (err) {
+                alert("發生錯誤：" + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "開始分析與語音播報";
+            }
+        }
+    </script>
+</body>
+</html>
