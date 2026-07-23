@@ -1,10 +1,9 @@
 export default {
   async fetch(request, env, ctx) {
-    // 處理 CORS（跨域請求），允許你的 GitHub Pages 網域存取
     if (request.method === "OPTIONS") {
       return new Response(null, {
         headers: {
-          "Access-Control-Allow-Origin": "*", // 正式上線建議改為你的 GitHub Pages 網址，例如 "https://yourname.github.io"
+          "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
         },
@@ -18,8 +17,8 @@ export default {
     try {
       const { stockList } = await request.json();
 
-      // 1. 呼叫 Gemini API 進行股票分析
-      const geminiPrompt = `請分析以下股票庫存資料，提供專業的短評、風險與建議：\n${JSON.stringify(stockList)}`;
+      // 1. 呼叫 Gemini API
+      const geminiPrompt = `請用精簡扼要的口吻分析以下股票庫存資料，提供專業短評與建議：\n${JSON.stringify(stockList)}`;
       const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -27,10 +26,13 @@ export default {
           contents: [{ parts: [{ text: geminiPrompt }] }]
         })
       });
+      
       const geminiData = await geminiRes.json();
+      if (!geminiRes.ok) throw new Error(`Gemini API 錯誤: ${JSON.stringify(geminiData)}`);
+      
       const analysisText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "無法取得分析結果";
 
-      // 2. 呼叫 OpenAI API (TTS 語音模組) 將分析文字轉成語音
+      // 2. 呼叫 OpenAI API (TTS)
       const openaiRes = await fetch("https://api.openai.com/v1/audio/speech", {
         method: "POST",
         headers: {
@@ -40,24 +42,24 @@ export default {
         body: JSON.stringify({
           model: "tts-1",
           input: analysisText,
-          voice: "alloy" // 可選: alloy, echo, fable, onyx, nova, shimmer
+          voice: "alloy"
         })
       });
 
       if (!openaiRes.ok) {
-        throw new Error("OpenAI TTS 產生失敗");
+        const errorDetail = await openaiRes.text();
+        throw new Error(`OpenAI TTS 失敗 (${openaiRes.status}): ${errorDetail}`);
       }
 
-      // 將 OpenAI 的語音音檔 (mp3) 與分析文字一起回傳給前端
       const audioBuffer = await openaiRes.arrayBuffer();
 
-      return new Response(JSON.stringify({
-        analysis: analysisText,
-        audio: btoa(String.fromCharCode(...new Uint8Array(audioBuffer))) // 轉成 Base64 傳給前端
-      }), {
+      // 3. 用 Multipart 或自訂 Headers 把「分析文字」與「二進位音檔」一起安全回傳
+      return new Response(audioBuffer, {
         headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*"
+          "Content-Type": "audio/mpeg",
+          "X-Analysis-Text": encodeURIComponent(analysisText), // 把文字放在 Header 避免中文亂碼
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Expose-Headers": "X-Analysis-Text"   // 允許前端讀取這個 Header
         }
       });
 
